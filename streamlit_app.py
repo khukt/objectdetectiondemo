@@ -37,7 +37,6 @@ class CentralizedController:
         self.ai_model = ai_model
         self.latency = []
         self.reliability = []
-        self.throughput = []
         self.resource_utilization = []
 
     def allocate_channel(self, device_id, message, context):
@@ -140,12 +139,50 @@ def run_simulation(use_semantic):
     return avg_latency, reliability, avg_resource_utilization
 
 # Streamlit UI
-st.title("5G Smart Factory: Semantic Communication and Wireless Resource Management")
+st.title("5G Smart Factory: Semantic Communication vs Traditional Communication")
 
-if st.button("Run Simulation with Semantic Communication"):
-    latency, reliability, resource_utilization = run_simulation(use_semantic=True)
-    st.write(f"Semantic Communication - Latency: {latency:.4f} s, Reliability: {reliability:.4f}, Resource Utilization: {resource_utilization:.4f}")
+if st.button("Run Comparison Simulation"):
+    st.write("### Running Semantic Communication Simulation...")
+    sem_latency, sem_reliability, sem_resource_utilization = run_simulation(use_semantic=True)
 
-if st.button("Run Simulation with Traditional Communication"):
-    latency, reliability, resource_utilization = run_simulation(use_semantic=False)
-    st.write(f"Traditional Communication - Latency: {latency:.4f} s, Reliability: {reliability:.4f}, Resource Utilization: {resource_utilization:.4f}")
+    st.write("### Running Traditional Communication Simulation...")
+    trad_latency, trad_reliability, trad_resource_utilization = run_simulation(use_semantic=False)
+
+    st.write("### Comparison Results")
+    st.write(f"**Semantic Communication** - Latency: {sem_latency:.4f} s, Reliability: {sem_reliability:.4f}, Resource Utilization: {sem_resource_utilization:.4f}")
+    st.write(f"**Traditional Communication** - Latency: {trad_latency:.4f} s, Reliability: {trad_reliability:.4f}, Resource Utilization: {trad_resource_utilization:.4f}")
+
+    # Plotting the results for better visualization
+    import matplotlib.pyplot as plt
+
+    labels = ['Latency (s)', 'Reliability', 'Resource Utilization']
+    semantic_values = [sem_latency, sem_reliability, sem_resource_utilization]
+    traditional_values = [trad_latency, trad_reliability, trad_resource_utilization]
+
+    x = np.arange(len(labels))  # the label locations
+    width = 0.35  # the width of the bars
+
+    fig, ax = plt.subplots()
+    rects1 = ax.bar(x - width/2, semantic_values, width, label='Semantic')
+    rects2 = ax.bar(x + width/2, traditional_values, width, label='Traditional')
+
+    ax.set_ylabel('Scores')
+    ax.set_title('Semantic vs Traditional Communication')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.legend()
+
+    def autolabel(rects):
+        """Attach a text label above each bar in *rects*, displaying its height."""
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate('{}'.format(round(height, 2)),
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+
+    autolabel(rects1)
+    autolabel(rects2)
+
+    st.pyplot(fig)
