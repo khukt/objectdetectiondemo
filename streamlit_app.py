@@ -197,17 +197,17 @@ def run_simulation(use_semantic):
     avg_resource_utilization = np.mean(controller.resource_utilization)
     avg_task_completion_time = np.mean(controller.task_completion_time)
 
-    return avg_latency, reliability, avg_resource_utilization, avg_task_completion_time
+    return avg_latency, reliability, avg_resource_utilization, avg_task_completion_time, controller_x, controller_y, machines
 
 # Streamlit UI
 st.title("5G Smart Factory: Semantic Communication vs Traditional Communication")
 
 if st.button("Run Comparison Simulation"):
     st.write("### Running Semantic Communication Simulation...")
-    sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time = run_simulation(use_semantic=True)
+    sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time, controller_x, controller_y, machines = run_simulation(use_semantic=True)
 
     st.write("### Running Traditional Communication Simulation...")
-    trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time = run_simulation(use_semantic=False)
+    trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time, _, _, _ = run_simulation(use_semantic=False)
 
     st.write("### Comparison Results")
     st.write(f"**Semantic Communication** - Latency: {sem_latency:.4f} s, Reliability: {sem_reliability:.4f}, Resource Utilization: {sem_resource_utilization:.4f}, Task Completion Time: {sem_task_completion_time:.4f} s")
