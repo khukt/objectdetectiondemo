@@ -38,6 +38,7 @@ class CentralizedController:
         self.latency = []
         self.reliability = []
         self.resource_utilization = []
+        self.task_completion_time = []
 
     def allocate_channel(self, device_id, message, context):
         priority = self.ai_model.predict_priority(context)
@@ -62,8 +63,17 @@ class CentralizedController:
     def release_channel(self, device_id):
         if device_id in self.allocated_channels:
             channel = self.allocated_channels.pop(device_id)
+            return channel
         else:
-            pass
+            return None
+
+    def simulate_task(self, device_id, task_duration):
+        start_time = time.time()
+        time.sleep(task_duration)  # Simulate task duration
+        end_time = time.time()
+        completion_time = end_time - start_time
+        self.task_completion_time.append(completion_time)
+        self.release_channel(device_id)
 
 class Machine:
     def __init__(self, device_id, controller, encoder, decoder):
@@ -84,8 +94,20 @@ class Machine:
 
     def perform_task(self, message, context):
         if self.channel:
-            time.sleep(random.uniform(0.5, 1.5))  # Simulate task duration
-            self.controller.release_channel(self.device_id)
+            task_duration = self.calculate_task_duration(context)
+            self.controller.simulate_task(self.device_id, task_duration)
+        else:
+            pass
+
+    def calculate_task_duration(self, context):
+        if "URLLC" in context:
+            return random.uniform(0.1, 0.3)
+        elif "eMBB" in context:
+            return random.uniform(0.5, 1.0)
+        elif "mMTC" in context:
+            return random.uniform(0.2, 0.5)
+        else:
+            return random.uniform(0.5, 1.5)
 
 def run_simulation(use_semantic):
     # Instantiate the encoder and decoder
@@ -105,7 +127,7 @@ def run_simulation(use_semantic):
     machine3 = Machine("Sensor1", controller, encoder, decoder)
 
     # Simulate the machines sending messages and performing tasks
-    for _ in range(10):  # Simulate 10 cycles
+    for _ in range(30):  # Simulate 30 cycles
         if use_semantic:
             semantic_message1 = machine1.send_message("move", "URLLC, control signal for arm")
             machine1.receive_message(semantic_message1)
@@ -135,29 +157,30 @@ def run_simulation(use_semantic):
     avg_latency = np.mean(controller.latency)
     reliability = np.mean(controller.reliability)
     avg_resource_utilization = np.mean(controller.resource_utilization)
+    avg_task_completion_time = np.mean(controller.task_completion_time)
 
-    return avg_latency, reliability, avg_resource_utilization
+    return avg_latency, reliability, avg_resource_utilization, avg_task_completion_time
 
 # Streamlit UI
 st.title("5G Smart Factory: Semantic Communication vs Traditional Communication")
 
 if st.button("Run Comparison Simulation"):
     st.write("### Running Semantic Communication Simulation...")
-    sem_latency, sem_reliability, sem_resource_utilization = run_simulation(use_semantic=True)
+    sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time = run_simulation(use_semantic=True)
 
     st.write("### Running Traditional Communication Simulation...")
-    trad_latency, trad_reliability, trad_resource_utilization = run_simulation(use_semantic=False)
+    trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time = run_simulation(use_semantic=False)
 
     st.write("### Comparison Results")
-    st.write(f"**Semantic Communication** - Latency: {sem_latency:.4f} s, Reliability: {sem_reliability:.4f}, Resource Utilization: {sem_resource_utilization:.4f}")
-    st.write(f"**Traditional Communication** - Latency: {trad_latency:.4f} s, Reliability: {trad_reliability:.4f}, Resource Utilization: {trad_resource_utilization:.4f}")
+    st.write(f"**Semantic Communication** - Latency: {sem_latency:.4f} s, Reliability: {sem_reliability:.4f}, Resource Utilization: {sem_resource_utilization:.4f}, Task Completion Time: {sem_task_completion_time:.4f} s")
+    st.write(f"**Traditional Communication** - Latency: {trad_latency:.4f} s, Reliability: {trad_reliability:.4f}, Resource Utilization: {trad_resource_utilization:.4f}, Task Completion Time: {trad_task_completion_time:.4f} s")
 
     # Plotting the results for better visualization
     import matplotlib.pyplot as plt
 
-    labels = ['Latency (s)', 'Reliability', 'Resource Utilization']
-    semantic_values = [sem_latency, sem_reliability, sem_resource_utilization]
-    traditional_values = [trad_latency, trad_reliability, trad_resource_utilization]
+    labels = ['Latency (s)', 'Reliability', 'Resource Utilization', 'Task Completion Time (s)']
+    semantic_values = [sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time]
+    traditional_values = [trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time]
 
     x = np.arange(len(labels))  # the label locations
     width = 0.35  # the width of the bars
