@@ -12,8 +12,7 @@ FACTORY_HEIGHT = 100
 def calculate_distance(x1, y1, x2, y2):
     return np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
-def calculate_snr(distance, transmit_power, noise_power):
-    path_loss_exponent = 2.0
+def calculate_snr(distance, transmit_power, noise_power, path_loss_exponent=2.0):
     reference_distance = 1.0
     path_loss = 10 * path_loss_exponent * np.log10(distance / reference_distance)
     snr = transmit_power - path_loss - noise_power
