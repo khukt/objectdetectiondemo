@@ -40,15 +40,19 @@ class CentralizedController:
         self.resource_utilization = []
         self.task_completion_time = []
         self.channel_quality = {ch: random.uniform(0.5, 1.0) for ch in channels}  # Quality between 0.5 to 1.0
+        self.bandwidth = {ch: 10 for ch in channels}  # Bandwidth in Mbps
+        self.computation_resources = {ch: 100 for ch in channels}  # Computation units
 
-    def allocate_channel(self, device_id, message, context):
+    def allocate_channel(self, device_id, message, context, bandwidth_required, computation_required):
         priority = self.ai_model.predict_priority(context)
-        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
+        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values() and self.bandwidth[ch] >= bandwidth_required and self.computation_resources[ch] >= computation_required]
         start_time = time.time()
         if available_channels:
             # Select channel based on quality and priority
             channel = max(available_channels, key=lambda ch: self.channel_quality[ch] / priority)
             self.allocated_channels[device_id] = channel
+            self.bandwidth[channel] -= bandwidth_required
+            self.computation_resources[channel] -= computation_required
             self.ai_model.update_history(device_id, message, context)
             end_time = time.time()
             self.latency.append(end_time - start_time)
@@ -62,14 +66,16 @@ class CentralizedController:
             self.resource_utilization.append(len(self.allocated_channels) / len(self.channels))
             return None
 
-    def release_channel(self, device_id):
+    def release_channel(self, device_id, bandwidth_released, computation_released):
         if device_id in self.allocated_channels:
             channel = self.allocated_channels.pop(device_id)
+            self.bandwidth[channel] += bandwidth_released
+            self.computation_resources[channel] += computation_released
             return channel
         else:
             return None
 
-    def simulate_task(self, device_id, task_duration, use_semantic):
+    def simulate_task(self, device_id, task_duration, use_semantic, bandwidth, computation):
         # Introduce a failure rate for traditional communication
         if not use_semantic and random.random() < 0.1:  # 10% failure rate
             completion_time = task_duration * 2  # Double the time for recovery
@@ -83,7 +89,7 @@ class CentralizedController:
         
         total_time = end_time - start_time
         self.task_completion_time.append(total_time)
-        self.release_channel(device_id)
+        self.release_channel(device_id, bandwidth, computation)
 
 class Machine:
     def __init__(self, device_id, controller, encoder, decoder):
@@ -93,19 +99,19 @@ class Machine:
         self.decoder = decoder
         self.channel = None
 
-    def send_message(self, message, context):
+    def send_message(self, message, context, bandwidth_required, computation_required):
         semantic_message = self.encoder.encode(message, context)
-        self.channel = self.controller.allocate_channel(self.device_id, message, context)
+        self.channel = self.controller.allocate_channel(self.device_id, message, context, bandwidth_required, computation_required)
         return semantic_message
 
-    def receive_message(self, semantic_message, use_semantic):
+    def receive_message(self, semantic_message, use_semantic, bandwidth_required, computation_required):
         message, context = self.decoder.decode(semantic_message)
-        self.perform_task(message, context, use_semantic)
+        self.perform_task(message, context, use_semantic, bandwidth_required, computation_required)
 
-    def perform_task(self, message, context, use_semantic):
+    def perform_task(self, message, context, use_semantic, bandwidth_required, computation_required):
         if self.channel:
             task_duration = self.calculate_task_duration(context)
-            self.controller.simulate_task(self.device_id, task_duration, use_semantic)
+            self.controller.simulate_task(self.device_id, task_duration, use_semantic, bandwidth_required, computation_required)
         else:
             pass
 
@@ -131,37 +137,25 @@ def run_simulation(use_semantic):
     available_channels = [1, 2, 3, 4, 5]
     controller = CentralizedController(available_channels, ai_model)
 
-    # Instantiate machines
-    machine1 = Machine("RoboticArm1", controller, encoder, decoder)
-    machine2 = Machine("SurveillanceCamera1", controller, encoder, decoder)
-    machine3 = Machine("Sensor1", controller, encoder, decoder)
+    # Instantiate machines with their required bandwidth and computation resources
+    machines = [
+        ("RoboticArm1", "URLLC, control signal for arm", 1, 10, 20),  # URLLC
+        ("SurveillanceCamera1", "eMBB, high-definition video feed", 2, 5, 50),  # eMBB
+        ("Sensor1", "mMTC, environmental sensor data", 3, 1, 5)  # mMTC
+    ]
 
     # Simulate the machines sending messages and performing tasks
     for _ in range(30):  # Simulate 30 cycles
-        if use_semantic:
-            semantic_message1 = machine1.send_message("move", "URLLC, control signal for arm")
-            machine1.receive_message(semantic_message1, use_semantic)
-
-            semantic_message2 = machine2.send_message("stream", "eMBB, high-definition video feed")
-            machine2.receive_message(semantic_message2, use_semantic)
-
-            semantic_message3 = machine3.send_message("monitor", "mMTC, environmental sensor data")
-            machine3.receive_message(semantic_message3, use_semantic)
-        else:
-            message1 = "move"
-            context1 = "URLLC"
-            machine1.channel = controller.allocate_channel(machine1.device_id, message1, context1)
-            machine1.perform_task(message1, context1, use_semantic)
-
-            message2 = "stream"
-            context2 = "eMBB"
-            machine2.channel = controller.allocate_channel(machine2.device_id, message2, context2)
-            machine2.perform_task(message2, context2, use_semantic)
-
-            message3 = "monitor"
-            context3 = "mMTC"
-            machine3.channel = controller.allocate_channel(machine3.device_id, message3, context3)
-            machine3.perform_task(message3, context3, use_semantic)
+        for device_id, context, _, bandwidth_required, computation_required in machines:
+            if use_semantic:
+                machine = Machine(device_id, controller, encoder, decoder)
+                semantic_message = machine.send_message("task", context, bandwidth_required, computation_required)
+                machine.receive_message(semantic_message, use_semantic, bandwidth_required, computation_required)
+            else:
+                machine = Machine(device_id, controller, encoder, decoder)
+                message = "task"
+                machine.channel = controller.allocate_channel(device_id, message, context, bandwidth_required, computation_required)
+                machine.perform_task(message, context, use_semantic, bandwidth_required, computation_required)
 
     # Calculate metrics
     avg_latency = np.mean(controller.latency)
