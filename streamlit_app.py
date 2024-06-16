@@ -21,10 +21,10 @@ class TrainingData:
 training_data = TrainingData()
 
 # Define a function to capture frames from the webcam
-def capture_frame():
-    cap = cv2.VideoCapture(0)
+def capture_frame(camera_index=0):
+    cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
-        st.error("Could not open webcam.")
+        st.error(f"Could not open webcam with index {camera_index}.")
         return None
     ret, frame = cap.read()
     cap.release()
@@ -45,11 +45,13 @@ def main():
     st.title("Teachable Machine with Streamlit")
 
     label = st.text_input("Enter label for training data:")
+    camera_index = st.number_input("Enter camera index:", min_value=0, step=1, value=0)
+    
     if st.button('Capture Image'):
         if not label:
             st.error("Label not provided.")
         else:
-            frame = capture_frame()
+            frame = capture_frame(camera_index)
             if frame is not None:
                 features = preprocess_and_extract_features(frame)
                 training_data.add_data(features, label)
@@ -65,7 +67,7 @@ def main():
 
     if 'knn_classifier' in st.session_state:
         st.header("Real-Time Prediction")
-        frame = capture_frame()
+        frame = capture_frame(camera_index)
         if frame is not None:
             features = preprocess_and_extract_features(frame)
             knn_classifier = st.session_state.knn_classifier
