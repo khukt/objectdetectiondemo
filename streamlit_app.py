@@ -4,11 +4,10 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Constants
+# Constants for the factory layout
 FACTORY_WIDTH = 100
 FACTORY_HEIGHT = 100
-TRANSMIT_POWER = 10  # in dBm
-NOISE_POWER = -90  # in dBm
+LOCAL_COMPUTATION_CAPACITY = 10  # Computation units available locally
 
 # Utility functions
 def calculate_distance(x1, y1, x2, y2):
@@ -20,8 +19,8 @@ def calculate_snr(distance, power):
     reference_snr = power - 10 * path_loss_exponent * np.log10(distance / reference_distance)
     return reference_snr
 
-def calculate_sinr(snr, interference):
-    noise = 10 ** (NOISE_POWER / 10)
+def calculate_sinr(snr, interference, noise_power):
+    noise = 10 ** (noise_power / 10)
     interference_power = 10 ** (interference / 10)
     sinr = snr / (interference_power + noise)
     return 10 * np.log10(sinr + 1e-6)  # Adding a small value to avoid log(0)
@@ -54,7 +53,7 @@ class AIModel:
             return 4
 
 class CentralizedController:
-    def __init__(self, x, y, channels, ai_model):
+    def __init__(self, x, y, channels, ai_model, transmit_power, noise_power):
         self.x = x
         self.y = y
         self.channels = channels
@@ -64,22 +63,28 @@ class CentralizedController:
         self.reliability = []
         self.resource_utilization = []
         self.task_completion_time = []
-        self.bandwidth = {ch: 10 for ch in channels}  # Bandwidth in Mbps
-        self.computation_resources = {ch: 100 for ch in channels}  # Computation units
+        self.slices = {
+            'eMBB': {'bandwidth': 20, 'computation': 200},  # Bandwidth in Mbps, Computation units
+            'URLLC': {'bandwidth': 10, 'computation': 100},
+            'mMTC': {'bandwidth': 5, 'computation': 50}
+        }
+        self.transmit_power = transmit_power
+        self.noise_power = noise_power
 
     def allocate_channel(self, device, message, context, bandwidth_required, computation_required):
         priority = self.ai_model.predict_priority(context)
-        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values() and self.bandwidth[ch] >= bandwidth_required and self.computation_resources[ch] >= computation_required]
+        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
         distance = calculate_distance(self.x, self.y, device.x, device.y)
-        snr = calculate_snr(distance, TRANSMIT_POWER)
-        interference = sum(calculate_snr(calculate_distance(self.x, self.y, d.x, d.y), TRANSMIT_POWER) for d in self.allocated_channels.values())
-        sinr = calculate_sinr(snr, interference)
+        snr = calculate_snr(distance, self.transmit_power)
+        interference = sum(calculate_snr(calculate_distance(self.x, self.y, d.x, d.y), self.transmit_power) for d in self.allocated_channels.values())
+        sinr = calculate_sinr(snr, interference, self.noise_power)
+        slice_type = 'eMBB' if 'eMBB' in context else 'URLLC' if 'URLLC' in context else 'mMTC'
         start_time = time.time()
-        if available_channels and sinr > 10:  # Threshold SINR for successful communication
+        if available_channels and sinr > 10 and self.slices[slice_type]['bandwidth'] >= bandwidth_required and self.slices[slice_type]['computation'] >= computation_required:
             channel = max(available_channels, key=lambda ch: sinr / priority)
             self.allocated_channels[device.device_id] = device
-            self.bandwidth[channel] -= bandwidth_required
-            self.computation_resources[channel] -= computation_required
+            self.slices[slice_type]['bandwidth'] -= bandwidth_required
+            self.slices[slice_type]['computation'] -= computation_required
             self.ai_model.update_history(device.device_id, message, context)
             end_time = time.time()
             self.latency.append(end_time - start_time)
@@ -93,30 +98,33 @@ class CentralizedController:
             self.resource_utilization.append(len(self.allocated_channels) / len(self.channels))
             return None
 
-    def release_channel(self, device_id, bandwidth_released, computation_released):
+    def release_channel(self, device_id, bandwidth_released, computation_released, slice_type):
         if device_id in self.allocated_channels:
             channel = self.allocated_channels.pop(device_id)
-            self.bandwidth[channel] += bandwidth_released
-            self.computation_resources[channel] += computation_released
+            self.slices[slice_type]['bandwidth'] += bandwidth_released
+            self.slices[slice_type]['computation'] += computation_released
             return channel
         else:
             return None
 
-    def simulate_task(self, device, task_duration, use_semantic, bandwidth, computation):
+    def simulate_task(self, device, task_duration, use_semantic, bandwidth, computation, slice_type, offloaded):
         # Introduce a failure rate for traditional communication
         if not use_semantic and random.random() < 0.1:  # 10% failure rate
             completion_time = task_duration * 2  # Double the time for recovery
             self.reliability[-1] = 0  # Mark as unreliable
         else:
             completion_time = task_duration
-        
+
         start_time = time.time()
         time.sleep(completion_time)  # Simulate task duration
         end_time = time.time()
-        
+
         total_time = end_time - start_time
         self.task_completion_time.append(total_time)
-        self.release_channel(device.device_id, bandwidth, computation)
+        self.release_channel(device.device_id, bandwidth, computation, slice_type)
+        if offloaded:
+            # Release computation resources on the controller if task was offloaded
+            self.slices[slice_type]['computation'] += computation
 
 class Machine:
     def __init__(self, device_id, x, y, controller, encoder, decoder):
@@ -133,28 +141,33 @@ class Machine:
         self.channel = self.controller.allocate_channel(self, message, context, bandwidth_required, computation_required)
         return semantic_message
 
-    def receive_message(self, semantic_message, use_semantic, bandwidth_required, computation_required):
+    def receive_message(self, semantic_message, use_semantic, bandwidth_required, computation_required, slice_type):
         message, context = self.decoder.decode(semantic_message)
-        self.perform_task(message, context, use_semantic, bandwidth_required, computation_required)
+        self.perform_task(message, context, use_semantic, bandwidth_required, computation_required, slice_type)
 
-    def perform_task(self, message, context, use_semantic, bandwidth_required, computation_required):
+    def perform_task(self, message, context, use_semantic, bandwidth_required, computation_required, slice_type):
+        offloaded = False
+        if computation_required > LOCAL_COMPUTATION_CAPACITY:
+            # Offload task to controller
+            self.controller.slices[slice_type]['computation'] -= computation_required
+            offloaded = True
         if self.channel:
-            task_duration = self.calculate_task_duration(context)
-            self.controller.simulate_task(self, task_duration, use_semantic, bandwidth_required, computation_required)
+            task_duration = self.calculate_task_duration(context, offloaded)
+            self.controller.simulate_task(self, task_duration, use_semantic, bandwidth_required, computation_required, slice_type, offloaded)
         else:
             pass
 
-    def calculate_task_duration(self, context):
+    def calculate_task_duration(self, context, offloaded):
         if "URLLC" in context:
-            return random.uniform(0.1, 0.3)
+            return random.uniform(0.1, 0.3) if not offloaded else random.uniform(0.05, 0.15)
         elif "eMBB" in context:
-            return random.uniform(0.5, 1.0)
+            return random.uniform(0.5, 1.0) if not offloaded else random.uniform(0.25, 0.5)
         elif "mMTC" in context:
-            return random.uniform(0.2, 0.5)
+            return random.uniform(0.2, 0.5) if not offloaded else random.uniform(0.1, 0.25)
         else:
-            return random.uniform(0.5, 1.5)
+            return random.uniform(0.5, 1.5) if not offloaded else random.uniform(0.25, 0.75)
 
-def run_simulation(use_semantic):
+def run_simulation(use_semantic, transmit_power, noise_power):
     # Instantiate the encoder and decoder
     encoder = SemanticEncoder()
     decoder = SemanticDecoder()
@@ -165,7 +178,7 @@ def run_simulation(use_semantic):
     # Instantiate the centralized controller with a list of available channels and the AI model
     controller_x, controller_y = FACTORY_WIDTH / 2, FACTORY_HEIGHT / 2
     available_channels = [1, 2, 3, 4, 5]
-    controller = CentralizedController(controller_x, controller_y, available_channels, ai_model)
+    controller = CentralizedController(controller_x, controller_y, available_channels, ai_model, transmit_power, noise_power)
 
     # Instantiate machines with their positions, required bandwidth, and computation resources
     machines = [
@@ -174,22 +187,22 @@ def run_simulation(use_semantic):
         Machine("Sensor1", random.uniform(0, FACTORY_WIDTH), random.uniform(0, FACTORY_HEIGHT), controller, encoder, decoder)
     ]
     machine_requirements = {
-        "RoboticArm1": ("URLLC, control signal for arm", 1, 10, 20),
-        "SurveillanceCamera1": ("eMBB, high-definition video feed", 2, 5, 50),
-        "Sensor1": ("mMTC, environmental sensor data", 3, 1, 5)
+        "RoboticArm1": ("URLLC, control signal for arm", 1, 10, 20, 'URLLC'),
+        "SurveillanceCamera1": ("eMBB, high-definition video feed", 2, 5, 50, 'eMBB'),
+        "Sensor1": ("mMTC, environmental sensor data", 3, 1, 5, 'mMTC')
     }
 
     # Simulate the machines sending messages and performing tasks
     for _ in range(30):  # Simulate 30 cycles
         for machine in machines:
-            context, _, bandwidth_required, computation_required = machine_requirements[machine.device_id]
+            context, _, bandwidth_required, computation_required, slice_type = machine_requirements[machine.device_id]
             if use_semantic:
                 semantic_message = machine.send_message("task", context, bandwidth_required, computation_required)
-                machine.receive_message(semantic_message, use_semantic, bandwidth_required, computation_required)
+                machine.receive_message(semantic_message, use_semantic, bandwidth_required, computation_required, slice_type)
             else:
                 message = "task"
                 machine.channel = controller.allocate_channel(machine, message, context, bandwidth_required, computation_required)
-                machine.perform_task(message, context, use_semantic, bandwidth_required, computation_required)
+                machine.perform_task(message, context, use_semantic, bandwidth_required, computation_required, slice_type)
 
     # Calculate metrics
     avg_latency = np.mean(controller.latency)
@@ -200,14 +213,18 @@ def run_simulation(use_semantic):
     return avg_latency, reliability, avg_resource_utilization, avg_task_completion_time, controller_x, controller_y, machines
 
 # Streamlit UI
-st.title("5G Smart Factory: Semantic Communication vs Traditional Communication")
+st.title("5G Smart Factory: Semantic Communication vs Traditional Communication with Network Slicing and Offloading")
+
+# Input parameters
+transmit_power = st.slider("Transmit Power (dBm)", min_value=0, max_value=30, value=10)
+noise_power = st.slider("Noise Power (dBm)", min_value=-120, max_value=-60, value=-90)
 
 if st.button("Run Comparison Simulation"):
     st.write("### Running Semantic Communication Simulation...")
-    sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time, controller_x, controller_y, machines = run_simulation(use_semantic=True)
+    sem_latency, sem_reliability, sem_resource_utilization, sem_task_completion_time, controller_x, controller_y, machines = run_simulation(use_semantic=True, transmit_power=transmit_power, noise_power=noise_power)
 
     st.write("### Running Traditional Communication Simulation...")
-    trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time, _, _, _ = run_simulation(use_semantic=False)
+    trad_latency, trad_reliability, trad_resource_utilization, trad_task_completion_time, _, _, _ = run_simulation(use_semantic=False, transmit_power=transmit_power, noise_power=noise_power)
 
     st.write("### Comparison Results")
     st.write(f"**Semantic Communication** - Latency: {sem_latency:.4f} s, Reliability: {sem_reliability:.4f}, Resource Utilization: {sem_resource_utilization:.4f}, Task Completion Time: {sem_task_completion_time:.4f} s")
