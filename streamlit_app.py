@@ -1,5 +1,4 @@
 import random
-import time
 import streamlit as st
 
 class SemanticEncoder:
@@ -73,7 +72,6 @@ class Machine:
     def perform_task(self, message, context):
         if self.channel:
             st.write(f"{self.device_id} performing task: {message} with context: {context} on channel {self.channel}")
-            time.sleep(random.uniform(0.5, 1.5))  # Simulate task duration
             self.controller.release_channel(self.device_id)
         else:
             st.write(f"{self.device_id} cannot perform task: {message}, no channel allocated")
@@ -97,9 +95,39 @@ machine1 = Machine("RoboticArm1", controller, encoder, decoder)
 machine2 = Machine("ConveyorBelt1", controller, encoder, decoder)
 machine3 = Machine("Sensor1", controller, encoder, decoder)
 
-# Simulate the machines sending messages and performing tasks
-if st.button("Start Simulation"):
-    st.write("### First Cycle")
+st.write("### Step-by-Step Simulation")
+step = st.number_input("Choose a step to execute (1-6)", min_value=1, max_value=6, step=1)
+
+if step == 1:
+    st.write("#### Step 1: Robotic Arm sends a high priority message to move an item to the arm")
+    semantic_message1 = machine1.send_message("move", "item to arm, high priority")
+    st.write(f"Encoded Message: {semantic_message1}")
+
+if step == 2:
+    st.write("#### Step 2: Robotic Arm receives and processes the message")
+    machine1.receive_message(semantic_message1)
+
+if step == 3:
+    st.write("#### Step 3: Conveyor Belt sends a normal priority message to convey an item to the station")
+    semantic_message2 = machine2.send_message("convey", "item to station, normal priority")
+    st.write(f"Encoded Message: {semantic_message2}")
+
+if step == 4:
+    st.write("#### Step 4: Conveyor Belt receives and processes the message")
+    machine2.receive_message(semantic_message2)
+
+if step == 5:
+    st.write("#### Step 5: Sensor sends a normal priority message to monitor temperature")
+    semantic_message3 = machine3.send_message("monitor", "temperature, normal priority")
+    st.write(f"Encoded Message: {semantic_message3}")
+
+if step == 6:
+    st.write("#### Step 6: Sensor receives and processes the message")
+    machine3.receive_message(semantic_message3)
+
+st.write("### Complete Simulation")
+if st.button("Run Complete Simulation"):
+    st.write("#### First Cycle")
     semantic_message1 = machine1.send_message("move", "item to arm, high priority")
     machine1.receive_message(semantic_message1)
 
@@ -109,7 +137,7 @@ if st.button("Start Simulation"):
     semantic_message3 = machine3.send_message("monitor", "temperature, normal priority")
     machine3.receive_message(semantic_message3)
 
-    st.write("### Second Cycle")
+    st.write("#### Second Cycle")
     semantic_message1 = machine1.send_message("move", "item to arm, emergency")
     machine1.receive_message(semantic_message1)
 
