@@ -1,38 +1,84 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
-st.title("Teachable Machine with Streamlit and TensorFlow.js")
-st.write("Upload an image to classify it using a pre-trained MobileNet model with TensorFlow.js.")
+st.title("Teachable Machine with Streamlit")
+st.write("This demo uses TensorFlow.js to create a KNN classifier for webcam images.")
 
-uploaded_file = st.file_uploader("Choose an image...", type="jpg")
+html_code = """
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+  </head>
+  <body>
+    <h2>Webcam Image Classification</h2>
+    <video id="webcam" width="224" height="224" autoplay></video>
+    <br>
+    <button id="add-example">Add Example</button>
+    <button id="predict">Predict</button>
+    <div id="result"></div>
+    <script>
+      const webcamElement = document.getElementById('webcam');
+      const classifier = knnClassifier.create();
+      let net;
 
-if uploaded_file is not None:
-    st.image(uploaded_file, caption='Uploaded Image.', use_column_width=True)
-    
-    # Embed JavaScript code to use TensorFlow.js
-    st.write("""
-        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-        <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
-        <script>
-            async function classifyImage() {
-                const img = document.getElementById('uploaded-image');
-                const model = await mobilenet.load();
-                const predictions = await model.classify(img);
-                const resultDiv = document.getElementById('result');
-                resultDiv.innerHTML = '';
-                predictions.forEach(prediction => {
-                    const p = document.createElement('p');
-                    p.innerText = `${prediction.className}: ${prediction.probability.toFixed(4)}`;
-                    resultDiv.appendChild(p);
-                });
-            }
-            
-            document.addEventListener('DOMContentLoaded', () => {
-                const img = document.getElementById('uploaded-image');
-                if (img) {
-                    classifyImage();
-                }
-            });
-        </script>
-        <img id="uploaded-image" src="data:image/jpeg;base64,{}" style="display: none;" onload="classifyImage()"/>
-        <div id="result"></div>
-    """.format(uploaded_file.read().decode("utf-8")), unsafe_allow_html=True)
+      async function setupWebcam() {
+        return new Promise((resolve, reject) => {
+          const navigatorAny = navigator;
+          navigator.getUserMedia = navigator.getUserMedia ||
+              navigatorAny.webkitGetUserMedia || navigatorAny.mozGetUserMedia ||
+              navigatorAny.msGetUserMedia;
+          if (navigator.getUserMedia) {
+            navigator.getUserMedia(
+                {video: true},
+                stream => {
+                  webcamElement.srcObject = stream;
+                  webcamElement.addEventListener('loadeddata',  () => resolve(), false);
+                },
+                error => reject());
+          } else {
+            reject();
+          }
+        });
+      }
+
+      async function app() {
+        console.log('Loading mobilenet..');
+
+        // Load the model.
+        net = await mobilenet.load();
+        console.log('Sucessfully loaded model');
+
+        await setupWebcam();
+
+        // Add example
+        const addExample = async classId => {
+          const activation = net.infer(webcamElement, true);
+          classifier.addExample(activation, classId);
+        };
+
+        // Predict
+        const predict = async () => {
+          if (classifier.getNumClasses() > 0) {
+            const activation = net.infer(webcamElement, 'conv_preds');
+            const result = await classifier.predictClass(activation);
+            document.getElementById('result').innerText = `
+              Prediction: ${result.label}\n
+              Probability: ${result.confidences[result.label]}
+            `;
+          }
+        };
+
+        document.getElementById('add-example').addEventListener('click', () => addExample(0));
+        document.getElementById('predict').addEventListener('click', () => predict());
+      }
+
+      app();
+    </script>
+  </body>
+</html>
+"""
+
+components.html(html_code, height=600)
