@@ -23,9 +23,15 @@ training_data = TrainingData()
 # Define a function to capture frames from the webcam
 def capture_frame():
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.error("Could not open webcam.")
+        return None
     ret, frame = cap.read()
     cap.release()
-    return frame if ret else None
+    if not ret:
+        st.error("Failed to capture image.")
+        return None
+    return frame
 
 # Define a function to preprocess images and extract features
 def preprocess_and_extract_features(image):
@@ -40,14 +46,15 @@ def main():
 
     label = st.text_input("Enter label for training data:")
     if st.button('Capture Image'):
-        frame = capture_frame()
-        if frame is not None and label:
-            features = preprocess_and_extract_features(frame)
-            training_data.add_data(features, label)
-            st.image(frame, channels="BGR")
-            st.success("Captured image and added training data for label: " + label)
+        if not label:
+            st.error("Label not provided.")
         else:
-            st.error("Failed to capture image or label not provided.")
+            frame = capture_frame()
+            if frame is not None:
+                features = preprocess_and_extract_features(frame)
+                training_data.add_data(features, label)
+                st.image(frame, channels="BGR")
+                st.success("Captured image and added training data for label: " + label)
 
     if st.button('Train Classifier'):
         if training_data.features and training_data.labels:
@@ -57,6 +64,7 @@ def main():
             st.success("Classifier trained!")
 
     if 'knn_classifier' in st.session_state:
+        st.header("Real-Time Prediction")
         frame = capture_frame()
         if frame is not None:
             features = preprocess_and_extract_features(frame)
@@ -66,7 +74,7 @@ def main():
             cv2.putText(frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
             st.image(frame, channels="BGR")
         else:
-            st.error("Failed to capture image.")
+            st.error("Failed to capture image for prediction.")
 
 if __name__ == "__main__":
     main()
