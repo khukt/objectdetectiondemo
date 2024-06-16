@@ -1,84 +1,60 @@
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+import av
+import tensorflow as tf
+import numpy as np
 
-st.title("Teachable Machine with Streamlit")
-st.write("This demo uses TensorFlow.js to create a KNN classifier for webcam images.")
+# Load the MobileNet model
+model = tf.keras.applications.MobileNetV2(weights='imagenet', include_top=False)
 
-html_code = """
-<!DOCTYPE html>
-<html>
-  <head>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
-  </head>
-  <body>
-    <h2>Webcam Image Classification</h2>
-    <video id="webcam" width="224" height="224" autoplay></video>
-    <br>
-    <button id="add-example">Add Example</button>
-    <button id="predict">Predict</button>
-    <div id="result"></div>
-    <script>
-      const webcamElement = document.getElementById('webcam');
-      const classifier = knnClassifier.create();
-      let net;
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self):
+        self.knn_classifier = None
+        self.features = []
 
-      async function setupWebcam() {
-        return new Promise((resolve, reject) => {
-          const navigatorAny = navigator;
-          navigator.getUserMedia = navigator.getUserMedia ||
-              navigatorAny.webkitGetUserMedia || navigatorAny.mozGetUserMedia ||
-              navigatorAny.msGetUserMedia;
-          if (navigator.getUserMedia) {
-            navigator.getUserMedia(
-                {video: true},
-                stream => {
-                  webcamElement.srcObject = stream;
-                  webcamElement.addEventListener('loadeddata',  () => resolve(), false);
-                },
-                error => reject());
-          } else {
-            reject();
-          }
-        });
-      }
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        img_resized = tf.image.resize(img, (224, 224))
+        img_resized = np.expand_dims(img_resized, axis=0)
+        img_resized = tf.keras.applications.mobilenet_v2.preprocess_input(img_resized)
+        
+        # Extract features
+        features = model.predict(img_resized)
+        features = features.flatten()
 
-      async function app() {
-        console.log('Loading mobilenet..');
+        # Predict with KNN classifier if it exists
+        if self.knn_classifier:
+            prediction = self.knn_classifier.predict([features])
+            label = f"Prediction: {prediction[0]}"
+            st.write(label)
+        else:
+            label = "No classifier trained yet."
+        
+        # Return the original frame with the label
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-        // Load the model.
-        net = await mobilenet.load();
-        console.log('Sucessfully loaded model');
+def main():
+    st.title("Teachable Machine with Streamlit")
+    
+    webrtc_ctx = webrtc_streamer(
+        key="example",
+        mode=WebRtcMode.SENDRECV,
+        video_transformer_factory=VideoTransformer,
+        media_stream_constraints={"video": True, "audio": False},
+    )
 
-        await setupWebcam();
+    if st.button('Train Classifier'):
+        if webrtc_ctx.video_transformer:
+            # Example: Train a simple KNN classifier with random data
+            from sklearn.neighbors import KNeighborsClassifier
+            video_transformer = webrtc_ctx.video_transformer
+            # Assuming we collect features and labels somehow
+            features = np.random.rand(10, 1280)  # Dummy features
+            labels = np.random.choice(['class1', 'class2'], 10)  # Dummy labels
+            knn = KNeighborsClassifier(n_neighbors=3)
+            knn.fit(features, labels)
+            video_transformer.knn_classifier = knn
+            st.success("Classifier trained!")
 
-        // Add example
-        const addExample = async classId => {
-          const activation = net.infer(webcamElement, true);
-          classifier.addExample(activation, classId);
-        };
-
-        // Predict
-        const predict = async () => {
-          if (classifier.getNumClasses() > 0) {
-            const activation = net.infer(webcamElement, 'conv_preds');
-            const result = await classifier.predictClass(activation);
-            document.getElementById('result').innerText = `
-              Prediction: ${result.label}\n
-              Probability: ${result.confidences[result.label]}
-            `;
-          }
-        };
-
-        document.getElementById('add-example').addEventListener('click', () => addExample(0));
-        document.getElementById('predict').addEventListener('click', () => predict());
-      }
-
-      app();
-    </script>
-  </body>
-</html>
-"""
-
-components.html(html_code, height=600)
+if __name__ == "__main__":
+    main()
