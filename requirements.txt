@@ -2,3 +2,4 @@ streamlit-webrtc
 tensorflow 
 scikit-learn 
 opencv-python-headless
+matplotlib
