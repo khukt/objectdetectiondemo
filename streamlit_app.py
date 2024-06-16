@@ -69,12 +69,20 @@ class CentralizedController:
         else:
             return None
 
-    def simulate_task(self, device_id, task_duration):
+    def simulate_task(self, device_id, task_duration, use_semantic):
+        # Introduce a failure rate for traditional communication
+        if not use_semantic and random.random() < 0.1:  # 10% failure rate
+            completion_time = task_duration * 2  # Double the time for recovery
+            self.reliability[-1] = 0  # Mark as unreliable
+        else:
+            completion_time = task_duration
+        
         start_time = time.time()
-        time.sleep(task_duration)  # Simulate task duration
+        time.sleep(completion_time)  # Simulate task duration
         end_time = time.time()
-        completion_time = end_time - start_time
-        self.task_completion_time.append(completion_time)
+        
+        total_time = end_time - start_time
+        self.task_completion_time.append(total_time)
         self.release_channel(device_id)
 
 class Machine:
@@ -90,14 +98,14 @@ class Machine:
         self.channel = self.controller.allocate_channel(self.device_id, message, context)
         return semantic_message
 
-    def receive_message(self, semantic_message):
+    def receive_message(self, semantic_message, use_semantic):
         message, context = self.decoder.decode(semantic_message)
-        self.perform_task(message, context)
+        self.perform_task(message, context, use_semantic)
 
-    def perform_task(self, message, context):
+    def perform_task(self, message, context, use_semantic):
         if self.channel:
             task_duration = self.calculate_task_duration(context)
-            self.controller.simulate_task(self.device_id, task_duration)
+            self.controller.simulate_task(self.device_id, task_duration, use_semantic)
         else:
             pass
 
@@ -132,28 +140,28 @@ def run_simulation(use_semantic):
     for _ in range(30):  # Simulate 30 cycles
         if use_semantic:
             semantic_message1 = machine1.send_message("move", "URLLC, control signal for arm")
-            machine1.receive_message(semantic_message1)
+            machine1.receive_message(semantic_message1, use_semantic)
 
             semantic_message2 = machine2.send_message("stream", "eMBB, high-definition video feed")
-            machine2.receive_message(semantic_message2)
+            machine2.receive_message(semantic_message2, use_semantic)
 
             semantic_message3 = machine3.send_message("monitor", "mMTC, environmental sensor data")
-            machine3.receive_message(semantic_message3)
+            machine3.receive_message(semantic_message3, use_semantic)
         else:
             message1 = "move"
             context1 = "URLLC"
             machine1.channel = controller.allocate_channel(machine1.device_id, message1, context1)
-            machine1.perform_task(message1, context1)
+            machine1.perform_task(message1, context1, use_semantic)
 
             message2 = "stream"
             context2 = "eMBB"
             machine2.channel = controller.allocate_channel(machine2.device_id, message2, context2)
-            machine2.perform_task(message2, context2)
+            machine2.perform_task(message2, context2, use_semantic)
 
             message3 = "monitor"
             context3 = "mMTC"
             machine3.channel = controller.allocate_channel(machine3.device_id, message3, context3)
-            machine3.perform_task(message3, context3)
+            machine3.perform_task(message3, context3, use_semantic)
 
     # Calculate metrics
     avg_latency = np.mean(controller.latency)
