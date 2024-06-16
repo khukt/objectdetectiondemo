@@ -3,7 +3,6 @@ import time
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import linprog
 
 # Constants
 FACTORY_WIDTH = 100
