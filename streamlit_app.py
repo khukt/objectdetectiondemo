@@ -1,5 +1,7 @@
 import random
+import time
 import streamlit as st
+import numpy as np
 
 class SemanticEncoder:
     def encode(self, message, context):
@@ -18,39 +20,51 @@ class AIModel:
     def update_history(self, device_id, message, context):
         self.history.append((device_id, message, context))
 
-    def predict_priority(self, message, context):
-        if "emergency" in context:
+    def predict_priority(self, context):
+        if "URLLC" in context:
             return 1
-        elif "high priority" in context:
+        elif "eMBB" in context:
             return 2
-        else:
+        elif "mMTC" in context:
             return 3
+        else:
+            return 4
 
 class CentralizedController:
     def __init__(self, channels, ai_model):
         self.channels = channels
         self.allocated_channels = {}
         self.ai_model = ai_model
+        self.latency = []
+        self.reliability = []
+        self.throughput = []
+        self.resource_utilization = []
 
     def allocate_channel(self, device_id, message, context):
-        priority = self.ai_model.predict_priority(message, context)
+        priority = self.ai_model.predict_priority(context)
         available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
+        start_time = time.time()
         if available_channels:
             channel = available_channels[0]
             self.allocated_channels[device_id] = channel
             self.ai_model.update_history(device_id, message, context)
-            st.write(f"Channel {channel} allocated to {device_id} for {message} with context {context} and priority {priority}")
+            end_time = time.time()
+            self.latency.append(end_time - start_time)
+            self.reliability.append(1)
+            self.resource_utilization.append(len(self.allocated_channels) / len(self.channels))
             return channel
         else:
-            st.write(f"No available channels for {device_id} for {message} with context {context} and priority {priority}")
+            end_time = time.time()
+            self.latency.append(end_time - start_time)
+            self.reliability.append(0)
+            self.resource_utilization.append(len(self.allocated_channels) / len(self.channels))
             return None
 
     def release_channel(self, device_id):
         if device_id in self.allocated_channels:
             channel = self.allocated_channels.pop(device_id)
-            st.write(f"Channel {channel} released by {device_id}")
         else:
-            st.write(f"No channel allocated to {device_id}")
+            pass
 
 class Machine:
     def __init__(self, device_id, controller, encoder, decoder):
@@ -71,78 +85,67 @@ class Machine:
 
     def perform_task(self, message, context):
         if self.channel:
-            st.write(f"{self.device_id} performing task: {message} with context: {context} on channel {self.channel}")
+            time.sleep(random.uniform(0.5, 1.5))  # Simulate task duration
             self.controller.release_channel(self.device_id)
+
+def run_simulation(use_semantic):
+    # Instantiate the encoder and decoder
+    encoder = SemanticEncoder()
+    decoder = SemanticDecoder()
+
+    # Instantiate the AI model
+    ai_model = AIModel()
+
+    # Instantiate the centralized controller with a list of available channels and the AI model
+    available_channels = [1, 2, 3, 4, 5]
+    controller = CentralizedController(available_channels, ai_model)
+
+    # Instantiate machines
+    machine1 = Machine("RoboticArm1", controller, encoder, decoder)
+    machine2 = Machine("SurveillanceCamera1", controller, encoder, decoder)
+    machine3 = Machine("Sensor1", controller, encoder, decoder)
+
+    # Simulate the machines sending messages and performing tasks
+    for _ in range(10):  # Simulate 10 cycles
+        if use_semantic:
+            semantic_message1 = machine1.send_message("move", "URLLC, control signal for arm")
+            machine1.receive_message(semantic_message1)
+
+            semantic_message2 = machine2.send_message("stream", "eMBB, high-definition video feed")
+            machine2.receive_message(semantic_message2)
+
+            semantic_message3 = machine3.send_message("monitor", "mMTC, environmental sensor data")
+            machine3.receive_message(semantic_message3)
         else:
-            st.write(f"{self.device_id} cannot perform task: {message}, no channel allocated")
+            message1 = "move"
+            context1 = "URLLC"
+            machine1.channel = controller.allocate_channel(machine1.device_id, message1, context1)
+            machine1.perform_task(message1, context1)
+
+            message2 = "stream"
+            context2 = "eMBB"
+            machine2.channel = controller.allocate_channel(machine2.device_id, message2, context2)
+            machine2.perform_task(message2, context2)
+
+            message3 = "monitor"
+            context3 = "mMTC"
+            machine3.channel = controller.allocate_channel(machine3.device_id, message3, context3)
+            machine3.perform_task(message3, context3)
+
+    # Calculate metrics
+    avg_latency = np.mean(controller.latency)
+    reliability = np.mean(controller.reliability)
+    avg_resource_utilization = np.mean(controller.resource_utilization)
+
+    return avg_latency, reliability, avg_resource_utilization
 
 # Streamlit UI
-st.title("Smart Factory: Semantic Communication and Wireless Resource Management")
+st.title("5G Smart Factory: Semantic Communication and Wireless Resource Management")
 
-# Instantiate the encoder and decoder
-encoder = SemanticEncoder()
-decoder = SemanticDecoder()
+if st.button("Run Simulation with Semantic Communication"):
+    latency, reliability, resource_utilization = run_simulation(use_semantic=True)
+    st.write(f"Semantic Communication - Latency: {latency:.4f} s, Reliability: {reliability:.4f}, Resource Utilization: {resource_utilization:.4f}")
 
-# Instantiate the AI model
-ai_model = AIModel()
-
-# Instantiate the centralized controller with a list of available channels and the AI model
-available_channels = [1, 2, 3, 4, 5]
-controller = CentralizedController(available_channels, ai_model)
-
-# Instantiate machines
-machine1 = Machine("RoboticArm1", controller, encoder, decoder)
-machine2 = Machine("ConveyorBelt1", controller, encoder, decoder)
-machine3 = Machine("Sensor1", controller, encoder, decoder)
-
-st.write("### Step-by-Step Simulation")
-step = st.number_input("Choose a step to execute (1-6)", min_value=1, max_value=6, step=1)
-
-if step == 1:
-    st.write("#### Step 1: Robotic Arm sends a high priority message to move an item to the arm")
-    semantic_message1 = machine1.send_message("move", "item to arm, high priority")
-    st.write(f"Encoded Message: {semantic_message1}")
-
-if step == 2:
-    st.write("#### Step 2: Robotic Arm receives and processes the message")
-    machine1.receive_message(semantic_message1)
-
-if step == 3:
-    st.write("#### Step 3: Conveyor Belt sends a normal priority message to convey an item to the station")
-    semantic_message2 = machine2.send_message("convey", "item to station, normal priority")
-    st.write(f"Encoded Message: {semantic_message2}")
-
-if step == 4:
-    st.write("#### Step 4: Conveyor Belt receives and processes the message")
-    machine2.receive_message(semantic_message2)
-
-if step == 5:
-    st.write("#### Step 5: Sensor sends a normal priority message to monitor temperature")
-    semantic_message3 = machine3.send_message("monitor", "temperature, normal priority")
-    st.write(f"Encoded Message: {semantic_message3}")
-
-if step == 6:
-    st.write("#### Step 6: Sensor receives and processes the message")
-    machine3.receive_message(semantic_message3)
-
-st.write("### Complete Simulation")
-if st.button("Run Complete Simulation"):
-    st.write("#### First Cycle")
-    semantic_message1 = machine1.send_message("move", "item to arm, high priority")
-    machine1.receive_message(semantic_message1)
-
-    semantic_message2 = machine2.send_message("convey", "item to station, normal priority")
-    machine2.receive_message(semantic_message2)
-
-    semantic_message3 = machine3.send_message("monitor", "temperature, normal priority")
-    machine3.receive_message(semantic_message3)
-
-    st.write("#### Second Cycle")
-    semantic_message1 = machine1.send_message("move", "item to arm, emergency")
-    machine1.receive_message(semantic_message1)
-
-    semantic_message2 = machine2.send_message("convey", "item to station, high priority")
-    machine2.receive_message(semantic_message2)
-
-    semantic_message3 = machine3.send_message("monitor", "humidity, normal priority")
-    machine3.receive_message(semantic_message3)
+if st.button("Run Simulation with Traditional Communication"):
+    latency, reliability, resource_utilization = run_simulation(use_semantic=False)
+    st.write(f"Traditional Communication - Latency: {latency:.4f} s, Reliability: {reliability:.4f}, Resource Utilization: {resource_utilization:.4f}")
