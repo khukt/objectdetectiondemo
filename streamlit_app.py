@@ -25,9 +25,11 @@ training_data = TrainingData()
 class VideoTransformer(VideoTransformerBase):
     def __init__(self):
         self.knn_classifier = None
+        self.current_frame = None
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
+        self.current_frame = img
         img_resized = cv2.resize(img, (224, 224))
         img_resized = np.expand_dims(img_resized, axis=0)
         img_resized = tf.keras.applications.mobilenet_v2.preprocess_input(img_resized)
@@ -58,21 +60,24 @@ def main():
 
     label = st.text_input("Enter label for training data:")
     if st.button('Add Training Data'):
-        if webrtc_ctx.video_transformer and label:
+        if webrtc_ctx.state.playing and label:
             video_transformer = webrtc_ctx.video_transformer
-            img = webrtc_ctx.video_frame.to_ndarray(format="bgr24")
-            img_resized = cv2.resize(img, (224, 224))
-            img_resized = np.expand_dims(img_resized, axis=0)
-            img_resized = tf.keras.applications.mobilenet_v2.preprocess_input(img_resized)
-            
-            features = model.predict(img_resized)
-            features = features.flatten()
+            if video_transformer and video_transformer.current_frame is not None:
+                img = video_transformer.current_frame
+                img_resized = cv2.resize(img, (224, 224))
+                img_resized = np.expand_dims(img_resized, axis=0)
+                img_resized = tf.keras.applications.mobilenet_v2.preprocess_input(img_resized)
+                
+                features = model.predict(img_resized)
+                features = features.flatten()
 
-            training_data.add_data(features, label)
-            st.success("Training data added!")
+                training_data.add_data(features, label)
+                st.success("Training data added!")
+            else:
+                st.error("No frame available to capture.")
 
     if st.button('Train Classifier'):
-        if webrtc_ctx.video_transformer and training_data.features:
+        if webrtc_ctx.state.playing and training_data.features:
             video_transformer = webrtc_ctx.video_transformer
             knn = KNeighborsClassifier(n_neighbors=3)
             knn.fit(training_data.features, training_data.labels)
