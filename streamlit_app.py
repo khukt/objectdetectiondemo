@@ -39,13 +39,15 @@ class CentralizedController:
         self.reliability = []
         self.resource_utilization = []
         self.task_completion_time = []
+        self.channel_quality = {ch: random.uniform(0.5, 1.0) for ch in channels}  # Quality between 0.5 to 1.0
 
     def allocate_channel(self, device_id, message, context):
         priority = self.ai_model.predict_priority(context)
         available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
         start_time = time.time()
         if available_channels:
-            channel = available_channels[0]
+            # Select channel based on quality and priority
+            channel = max(available_channels, key=lambda ch: self.channel_quality[ch] / priority)
             self.allocated_channels[device_id] = channel
             self.ai_model.update_history(device_id, message, context)
             end_time = time.time()
