@@ -26,6 +26,8 @@ class VideoTransformer(VideoTransformerBase):
     def __init__(self):
         self.knn_classifier = None
         self.current_frame = None
+        self.capturing = False
+        self.capture_label = None
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
@@ -37,6 +39,10 @@ class VideoTransformer(VideoTransformerBase):
         # Extract features
         features = model.predict(img_resized)
         features = features.flatten()
+
+        # Capture features if capturing is enabled
+        if self.capturing and self.capture_label:
+            training_data.add_data(features, self.capture_label)
 
         # Predict with KNN classifier if it exists
         if self.knn_classifier:
@@ -59,22 +65,24 @@ def main():
     )
 
     label = st.text_input("Enter label for training data:")
-    if st.button('Add Training Data'):
+    if st.button('Start Capturing'):
         if webrtc_ctx.state.playing and label:
             video_transformer = webrtc_ctx.video_transformer
-            if video_transformer and video_transformer.current_frame is not None:
-                img = video_transformer.current_frame
-                img_resized = cv2.resize(img, (224, 224))
-                img_resized = np.expand_dims(img_resized, axis=0)
-                img_resized = tf.keras.applications.mobilenet_v2.preprocess_input(img_resized)
-                
-                features = model.predict(img_resized)
-                features = features.flatten()
-
-                training_data.add_data(features, label)
-                st.success("Training data added!")
+            if video_transformer:
+                video_transformer.capturing = True
+                video_transformer.capture_label = label
+                st.success("Started capturing images for label: " + label)
             else:
-                st.error("No frame available to capture.")
+                st.error("Video transformer not available.")
+    if st.button('Stop Capturing'):
+        if webrtc_ctx.state.playing:
+            video_transformer = webrtc_ctx.video_transformer
+            if video_transformer:
+                video_transformer.capturing = False
+                video_transformer.capture_label = None
+                st.success("Stopped capturing images.")
+            else:
+                st.error("Video transformer not available.")
 
     if st.button('Train Classifier'):
         if webrtc_ctx.state.playing and training_data.features:
