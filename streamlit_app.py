@@ -121,6 +121,8 @@ class CentralizedController:
             self.slices[slice_type]['computation'] += computation
 
 class Machine:
+    LOCAL_COMPUTATION_CAPACITY = 10  # Computation units available locally
+
     def __init__(self, device_id, x, y, controller, encoder, decoder):
         self.device_id = device_id
         self.x = x
@@ -141,7 +143,7 @@ class Machine:
 
     def perform_task(self, message, context, use_semantic, bandwidth_required, computation_required, slice_type):
         offloaded = False
-        if computation_required > LOCAL_COMPUTATION_CAPACITY:
+        if computation_required > self.LOCAL_COMPUTATION_CAPACITY:
             offloaded = True
             self.controller.slices[slice_type]['computation'] -= computation_required
         if self.channel:
