@@ -3,24 +3,47 @@ import time
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
 
 # Constants
 FACTORY_WIDTH = 100
 FACTORY_HEIGHT = 100
+FREQUENCY = 3.5e9  # Frequency in Hz (e.g., 3.5 GHz for 5G)
+SPEED_OF_LIGHT = 3e8  # Speed of light in m/s
+WAVELENGTH = SPEED_OF_LIGHT / FREQUENCY
 
 # Utility functions
 def calculate_distance(x1, y1, x2, y2):
     return np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
-def calculate_snr(distance, transmit_power, noise_power, path_loss_exponent=2.0):
-    reference_distance = 1.0
-    path_loss = 10 * path_loss_exponent * np.log10(distance / reference_distance)
-    snr = transmit_power - path_loss - noise_power
-    return snr
+def calculate_path_loss(distance, frequency):
+    return 20 * np.log10(distance) + 20 * np.log10(frequency) - 147.55
 
-def calculate_sinr(snr, interference):
-    sinr = snr - interference
-    return sinr
+def calculate_channel_gain(distance, path_loss, g_t=1, g_r=1):
+    h_fading = np.abs(np.random.normal(0, 1) + 1j * np.random.normal(0, 1))**2
+    return (g_t * g_r * WAVELENGTH**2 / (4 * np.pi * distance)**2) * 10**(-path_loss / 10) * h_fading
+
+def calculate_interference(allocated_channels, current_device_id, current_distance, transmit_power):
+    interference = 0
+    for device_id, device in allocated_channels.items():
+        if device_id != current_device_id:
+            distance = calculate_distance(device.x, device.y, current_distance[0], current_distance[1])
+            path_loss = calculate_path_loss(distance, FREQUENCY)
+            channel_gain = calculate_channel_gain(distance, path_loss)
+            interference += transmit_power * channel_gain
+    return interference
+
+def calculate_sinr(transmit_power, channel_gain, interference, noise_power):
+    return (transmit_power * channel_gain) / (interference + noise_power)
+
+def calculate_snr(transmit_power, channel_gain, noise_power):
+    return (transmit_power * channel_gain) / noise_power
+
+def allocate_bandwidth(total_bandwidth, sinr, all_sinrs):
+    return total_bandwidth * (sinr / sum(all_sinrs))
+
+def calculate_data_rate(bandwidth, sinr):
+    return bandwidth * np.log2(1 + sinr)
 
 class SemanticEncoder:
     def encode(self, message, context):
@@ -34,9 +57,16 @@ class SemanticDecoder:
 class AIModel:
     def __init__(self):
         self.history = []
+        self.model = LinearRegression()
 
-    def update_history(self, device_id, message, context):
-        self.history.append((device_id, message, context))
+    def update_history(self, device_id, message, context, features):
+        self.history.append((device_id, message, context, features))
+
+    def train_model(self):
+        if len(self.history) > 10:  # Train after collecting sufficient data
+            X = np.array([item[3] for item in self.history])
+            y = np.array([self.predict_priority(item[2]) for item in self.history])
+            self.model.fit(X, y)
 
     def predict_priority(self, context):
         if "URLLC" in context:
@@ -47,6 +77,9 @@ class AIModel:
             return 3
         else:
             return 4
+
+    def predict_priority_dynamic(self, features):
+        return self.model.predict([features])[0]
 
 class CentralizedController:
     def __init__(self, x, y, channels, ai_model, max_bandwidth, max_computation):
@@ -69,13 +102,15 @@ class CentralizedController:
             'mMTC': {'bandwidth': max_bandwidth * 0.1, 'computation': max_computation * 0.1}
         }
 
-    def allocate_channel(self, device, message, context, bandwidth_required, computation_required, transmit_power, noise_power):
-        priority = self.ai_model.predict_priority(context)
-        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
+    def allocate_channel(self, device, message, context, bandwidth_required, computation_required, noise_power):
         distance = calculate_distance(self.x, self.y, device.x, device.y)
-        snr = calculate_snr(distance, transmit_power, noise_power)
-        interference = sum(calculate_snr(calculate_distance(self.x, self.y, d.x, d.y), transmit_power, noise_power) for d in self.allocated_channels.values())
-        sinr = calculate_sinr(snr, interference)
+        path_loss = calculate_path_loss(distance, FREQUENCY)
+        channel_gain = calculate_channel_gain(distance, path_loss)
+        interference = calculate_interference(self.allocated_channels, device.device_id, (device.x, device.y), device.transmit_power)
+        sinr = calculate_sinr(device.transmit_power, channel_gain, interference, noise_power)
+        features = [distance, channel_gain, interference, bandwidth_required, computation_required]
+        priority = self.ai_model.predict_priority_dynamic(features)
+        available_channels = [ch for ch in self.channels if ch not in self.allocated_channels.values()]
         slice_type = 'eMBB' if 'eMBB' in context else 'URLLC' if 'URLLC' in context else 'mMTC'
         start_time = time.time()
         if available_channels and sinr > 10 and self.slices[slice_type]['bandwidth'] >= bandwidth_required and self.slices[slice_type]['computation'] >= computation_required:
@@ -83,7 +118,8 @@ class CentralizedController:
             self.allocated_channels[device.device_id] = device
             self.slices[slice_type]['bandwidth'] -= bandwidth_required
             self.slices[slice_type]['computation'] -= computation_required
-            self.ai_model.update_history(device.device_id, message, context)
+            self.ai_model.update_history(device.device_id, message, context, features)
+            self.ai_model.train_model()
             end_time = time.time()
             self.latency.append(end_time - start_time)
             self.reliability.append(1)
@@ -130,10 +166,25 @@ class Machine:
         self.encoder = encoder
         self.decoder = decoder
         self.channel = None
+        self.transmit_power = self.adjust_transmit_power()
 
-    def send_message(self, message, context, bandwidth_required, computation_required, transmit_power, noise_power):
+    def adjust_transmit_power(self):
+        # Implement a power control algorithm to dynamically adjust transmit power
+        # This example uses a simple approach based on distance, can be more complex based on requirements
+        distance = calculate_distance(self.controller.x, self.controller.y, self.x, self.y)
+        required_sinr = 10  # Target SINR value for the device
+        path_loss = calculate_path_loss(distance, FREQUENCY)
+        channel_gain = calculate_channel_gain(distance, path_loss)
+        interference = calculate_interference(self.controller.allocated_channels, self.device_id, (self.x, self.y), 0)  # Assuming initial power is 0
+        noise_power_linear = 10**(np.random.normal(-94, 2) / 10)  # Variable noise power
+        transmit_power_linear = (required_sinr * (interference + noise_power_linear)) / channel_gain
+        transmit_power_dbm = 10 * np.log10(transmit_power_linear)  # Convert back to dBm
+        return transmit_power_dbm
+
+    def send_message(self, message, context, bandwidth_required, computation_required, noise_power):
+        self.transmit_power = self.adjust_transmit_power()  # Adjust transmit power before sending a message
         semantic_message = self.encoder.encode(message, context)
-        self.channel = self.controller.allocate_channel(self, message, context, bandwidth_required, computation_required, transmit_power, noise_power)
+        self.channel = self.controller.allocate_channel(self, message, context, bandwidth_required, computation_required, noise_power)
         return semantic_message
 
     def receive_message(self, semantic_message, use_semantic, bandwidth_required, computation_required, slice_type):
@@ -177,18 +228,17 @@ def run_simulation(use_semantic):
         "SurveillanceCamera1": ("eMBB, high-definition video feed", 2, 5, 50, 'eMBB'),
         "Sensor1": ("mMTC, environmental sensor data", 3, 1, 5, 'mMTC')
     }
-    transmit_power = 23  # in dBm (typical for 5G NR)
-    noise_power = -94  # in dBm (typical noise figure)
 
     for _ in range(30):
         for machine in machines:
             context, _, bandwidth_required, computation_required, slice_type = machine_requirements[machine.device_id]
+            noise_power = 10**(np.random.normal(-94, 2) / 10)  # Variable noise power
             if use_semantic:
-                semantic_message = machine.send_message("task", context, bandwidth_required, computation_required, transmit_power, noise_power)
+                semantic_message = machine.send_message("task", context, bandwidth_required, computation_required, noise_power)
                 machine.receive_message(semantic_message, use_semantic, bandwidth_required, computation_required, slice_type)
             else:
                 message = "task"
-                machine.channel = controller.allocate_channel(machine, message, context, bandwidth_required, computation_required, transmit_power, noise_power)
+                machine.channel = controller.allocate_channel(machine, message, context, bandwidth_required, computation_required, noise_power)
                 machine.perform_task(message, context, use_semantic, bandwidth_required, computation_required, slice_type)
 
     avg_latency = np.mean(controller.latency)
