@@ -289,7 +289,7 @@ if st.button("Run Comparison Simulation"):
     ax.legend()
 
     def autolabel(rects):
-        for rect in rects):
+        for rect in rects:
             height = rect.get_height()
             ax.annotate('{}'.format(round(height, 2)),
                         xy=(rect.get_x() + rect.get_width() / 2, height),
