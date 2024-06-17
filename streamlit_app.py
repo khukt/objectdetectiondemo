@@ -154,7 +154,7 @@ class CentralizedController:
             completion_time = task_duration
 
         start_time = time.time()
-        time.sleep(completion_time)
+        time.sleep(completion_time)  # Simulate task duration
         end_time = time.time()
 
         total_time = end_time - start_time
@@ -177,8 +177,6 @@ class Machine:
         self.transmit_power = self.adjust_transmit_power()
 
     def adjust_transmit_power(self):
-        # Implement a power control algorithm to dynamically adjust transmit power
-        # This example uses a simple approach based on distance, can be more complex based on requirements
         distance = calculate_distance(self.controller.x, self.controller.y, self.x, self.y)
         required_sinr = 10  # Target SINR value for the device
         path_loss = calculate_path_loss(distance, FREQUENCY)
