@@ -129,15 +129,19 @@ class CentralizedController:
             self.ai_model.update_history(device.device_id, message, context, features)
             self.ai_model.train_model()
             end_time = time.time()
-            self.latency.append(end_time - start_time)
+            latency = end_time - start_time
+            self.latency.append(latency)
             self.reliability.append(1)
             self.resource_utilization.append((self.max_bandwidth - self.available_bandwidth) / self.max_bandwidth)
+            print(f"Allocated channel for device {device.device_id}: Latency={latency}, SINR={sinr}, Slice={slice_type}")
             return channel
         else:
             end_time = time.time()
-            self.latency.append(end_time - start_time)
+            latency = end_time - start_time
+            self.latency.append(latency)
             self.reliability.append(0)
             self.resource_utilization.append((self.max_bandwidth - self.available_bandwidth) / self.max_bandwidth)
+            print(f"Failed to allocate channel for device {device.device_id}: Latency={latency}, SINR={sinr}, Slice={slice_type}")
             return None
 
     def release_channel(self, device_id, bandwidth_released, computation_released, slice_type):
@@ -145,6 +149,7 @@ class CentralizedController:
             self.slices[slice_type]['bandwidth'] += bandwidth_released
             self.slices[slice_type]['computation'] += computation_released
             del self.allocated_channels[device_id]
+            print(f"Released channel for device {device_id}: Bandwidth={bandwidth_released}, Computation={computation_released}")
 
     def simulate_task(self, device, task_duration, use_semantic, bandwidth, computation, slice_type, offloaded):
         if not use_semantic and random.random() < 0.1:
@@ -154,7 +159,7 @@ class CentralizedController:
             completion_time = task_duration
 
         start_time = time.time()
-        time.sleep(completion_time)  # Simulate task duration
+        time.sleep(completion_time / 1000.0)  # Simulate task duration (in seconds)
         end_time = time.time()
 
         total_time = end_time - start_time
@@ -162,6 +167,7 @@ class CentralizedController:
         self.release_channel(device.device_id, bandwidth, computation, slice_type)
         if offloaded:
             self.slices[slice_type]['computation'] += computation
+        print(f"Simulated task for device {device.device_id}: Duration={total_time}, UseSemantic={use_semantic}, Offloaded={offloaded}")
 
 class Machine:
     LOCAL_COMPUTATION_CAPACITY = 10  # Computation units available locally
