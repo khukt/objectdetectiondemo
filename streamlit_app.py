@@ -247,10 +247,10 @@ def run_simulation(use_semantic):
                 machine.channel = controller.allocate_channel(machine, message, context, bandwidth_required, computation_required, noise_power)
                 machine.perform_task(message, context, use_semantic, bandwidth_required, computation_required, slice_type)
 
-    avg_latency = np.mean(controller.latency)
-    reliability = np.mean(controller.reliability)
-    avg_resource_utilization = np.mean(controller.resource_utilization)
-    avg_task_completion_time = np.mean(controller.task_completion_time)
+    avg_latency = np.mean(controller.latency) if controller.latency else 0
+    reliability = np.mean(controller.reliability) if controller.reliability else 0
+    avg_resource_utilization = np.mean(controller.resource_utilization) if controller.resource_utilization else 0
+    avg_task_completion_time = np.mean(controller.task_completion_time) if controller.task_completion_time else 0
 
     return avg_latency, reliability, avg_resource_utilization, avg_task_completion_time, controller_x, controller_y, machines
 
