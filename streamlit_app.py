@@ -4,6 +4,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
+from sklearn.exceptions import NotFittedError
 
 # Constants
 FACTORY_WIDTH = 100
@@ -58,6 +59,10 @@ class AIModel:
     def __init__(self):
         self.history = []
         self.model = LinearRegression()
+        # Train the model with some initial data to avoid NotFittedError
+        X_initial = np.random.rand(10, 5)
+        y_initial = np.random.randint(1, 5, 10)
+        self.model.fit(X_initial, y_initial)
 
     def update_history(self, device_id, message, context, features):
         self.history.append((device_id, message, context, features))
@@ -79,7 +84,10 @@ class AIModel:
             return 4
 
     def predict_priority_dynamic(self, features):
-        return self.model.predict([features])[0]
+        try:
+            return self.model.predict([features])[0]
+        except NotFittedError:
+            return 4  # Default priority if model is not yet trained
 
 class CentralizedController:
     def __init__(self, x, y, channels, ai_model, max_bandwidth, max_computation):
@@ -281,7 +289,7 @@ if st.button("Run Comparison Simulation"):
     ax.legend()
 
     def autolabel(rects):
-        for rect in rects:
+        for rect in rects):
             height = rect.get_height()
             ax.annotate('{}'.format(round(height, 2)),
                         xy=(rect.get_x() + rect.get_width() / 2, height),
